@@ -1,0 +1,17 @@
+name: check
+on: push
+jobs:
+  lint:
+    name: lint
+    runs-on: macOS-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@master
+        with:
+          fetch-depth: 1
+      - name: Install jsonlint
+        run: |
+          brew install jsonlint | tee
+      - name: Manifest Lint
+        run: |
+          cat manifest.json | jsonlint

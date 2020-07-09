@@ -1,0 +1,5 @@
+{
+	"name": "downloadActivity",
+	"binding": "downloadActionActivity",
+	"type" : "text"
+}
