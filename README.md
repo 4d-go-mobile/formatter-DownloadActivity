@@ -1,4 +1,4 @@
-<p align="center"><img src="https://github.com/4d-for-ios/4d-for-ios-formatter-Download/blob/master/formatter.png" alt=“Url” height="auto" width="200"></p>
+<p align="center"><img src="https://github.com/4d-for-ios/formatter-DownloadActivity/blob/master/formatter.png" alt=“Url” height="auto" width="200"></p>
 
 ## Download Activity
 
