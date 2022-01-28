@@ -2,28 +2,36 @@ package ___PACKAGE___
 
 import android.content.Context
 import android.content.Intent
+import android.os.Environment.DIRECTORY_DOWNLOADS
 import android.os.Handler
 import android.os.Looper
 import android.widget.TextView
 import androidx.core.content.FileProvider
 import androidx.databinding.BindingAdapter
+import com.qmobile.qmobileapi.auth.isRemoteUrlValid
 import com.qmobile.qmobiledatasync.toast.MessageType
 import com.qmobile.qmobileui.utils.ToastHelper
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody
+import timber.log.Timber
 import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 private const val TIMEOUT = 15
-private const val BUFFER_LENGTH_BYTES = 8 * 1024
 
 @BindingAdapter("downloadActivityAction")
 fun downloadActivityAction(view: TextView, urlString: String?) {
     if (urlString.isNullOrEmpty()) return
+    view.text = urlString
+
+    if (!urlString.isRemoteUrlValid())
+        return
 
     val okHttpClientBuilder = OkHttpClient().newBuilder()
         .connectTimeout(TIMEOUT.toLong(), TimeUnit.SECONDS)
@@ -33,8 +41,7 @@ fun downloadActivityAction(view: TextView, urlString: String?) {
 
     view.setOnClickListener {
 
-        val fileName = "downloadActivityAction_" + System.currentTimeMillis()
-        val file = File(view.context.cacheDir, fileName)
+        val file = getFile(view.context, urlString)
 
         downloadFile(urlString, okHttpClient, file) { isSuccess ->
             if (isSuccess)
@@ -42,11 +49,31 @@ fun downloadActivityAction(view: TextView, urlString: String?) {
             else
                 ToastHelper.show(
                     view.context,
-                    "Error while downloading data file : $urlString",
+                    "Error while downloading file : $urlString",
                     MessageType.ERROR
                 )
         }
     }
+}
+
+private fun getFile(context: Context, urlString: String): File {
+    val fileName = try {
+        urlString.removeSuffix("/").substring(urlString.lastIndexOf('/') + 1)
+    } catch (e: StringIndexOutOfBoundsException) {
+        Timber.e(e.localizedMessage)
+        "downloadActivityAction_" + System.currentTimeMillis()
+    }
+
+    var file = File(context.getExternalFilesDir(DIRECTORY_DOWNLOADS), fileName)
+    var i = 0
+    while (file.exists()) {
+        i++
+        var newName = "${file.nameWithoutExtension.removeSuffix(" (${i - 1})")} ($i)"
+        if (file.extension.isNotEmpty())
+            newName += ".${file.extension}"
+        file = File(context.getExternalFilesDir(DIRECTORY_DOWNLOADS), newName)
+    }
+    return file
 }
 
 private fun downloadFile(
@@ -69,24 +96,24 @@ private fun downloadFile(
             body != null
         ) {
             body.byteStream().apply {
-                file.outputStream().use { fileOut ->
-                    var bytesCopied = 0
-                    val buffer = ByteArray(BUFFER_LENGTH_BYTES)
-                    var bytes = read(buffer)
-                    while (bytes >= 0) {
-                        fileOut.write(buffer, 0, bytes)
-                        bytesCopied += bytes
-                        bytes = read(buffer)
-                    }
-                }
+                saveFileToExternalStorage(this, file)
             }
         }
         handler.post {
             onResult(
                 responseCode >= HttpURLConnection.HTTP_OK &&
-                        responseCode < HttpURLConnection.HTTP_MULT_CHOICE &&
-                        body != null
+                    responseCode < HttpURLConnection.HTTP_MULT_CHOICE &&
+                    body != null,
+
             )
+        }
+    }
+}
+
+fun saveFileToExternalStorage(inputStream: InputStream, target: File) {
+    inputStream.use { input ->
+        FileOutputStream(target).use { output ->
+            input.copyTo(output)
         }
     }
 }
