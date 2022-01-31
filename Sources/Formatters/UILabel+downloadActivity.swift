@@ -38,7 +38,7 @@ extension UILabel {
         AF.request(url).responseData { response in
             if let fileData = response.data {
                 let activityViewController = UIActivityViewController(activityItems: [url.lastPathComponent, fileData], applicationActivities: nil)
-                activityViewController.sourceView = self
+                // activityViewController.sourceView = self
                 UIApplication.topViewController?.present(activityViewController, animated: true) {
                     logger.info("End to download \(url)")
                 }
