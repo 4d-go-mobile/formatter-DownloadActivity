@@ -5,8 +5,10 @@ import android.content.Intent
 import android.os.Environment.DIRECTORY_DOWNLOADS
 import android.os.Handler
 import android.os.Looper
+import android.webkit.MimeTypeMap
 import android.widget.TextView
 import androidx.core.content.FileProvider
+import androidx.core.net.toUri
 import androidx.databinding.BindingAdapter
 import com.qmobile.qmobileapi.auth.isRemoteUrlValid
 import com.qmobile.qmobiledatasync.toast.MessageType
@@ -20,6 +22,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
+import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -45,7 +48,7 @@ fun downloadActivityAction(view: TextView, urlString: String?) {
 
         downloadFile(urlString, okHttpClient, file) { isSuccess ->
             if (isSuccess)
-                startFileShareIntent(view.context, file.path)
+                startFileShareIntent(view.context, file)
             else
                 ToastHelper.show(
                     view.context,
@@ -102,10 +105,10 @@ private fun downloadFile(
         handler.post {
             onResult(
                 responseCode >= HttpURLConnection.HTTP_OK &&
-                    responseCode < HttpURLConnection.HTTP_MULT_CHOICE &&
-                    body != null,
+                        responseCode < HttpURLConnection.HTTP_MULT_CHOICE &&
+                        body != null,
 
-            )
+                )
         }
     }
 }
@@ -118,15 +121,19 @@ fun saveFileToExternalStorage(inputStream: InputStream, target: File) {
     }
 }
 
-private fun startFileShareIntent(context: Context, filePath: String) {
+private fun startFileShareIntent(context: Context, file: File) {
     val shareIntent = Intent(Intent.ACTION_SEND).apply {
-        type = "*/*"
+        type = file.getMimeType()
         flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
         val fileURI = FileProvider.getUriForFile(
             context, context.packageName + ".provider",
-            File(filePath)
+            File(file.path)
         )
         putExtra(Intent.EXTRA_STREAM, fileURI)
     }
     context.startActivity(shareIntent)
 }
+
+fun File.getMimeType(): String = MimeTypeMap.getFileExtensionFromUrl(toUri().toString())
+    ?.run { MimeTypeMap.getSingleton().getMimeTypeFromExtension(lowercase(Locale.getDefault())) }
+    ?: "*/*"
