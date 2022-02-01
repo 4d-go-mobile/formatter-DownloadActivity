@@ -1,5 +1,6 @@
 {
 	"name": "downloadActivity",
 	"binding": "downloadActivityAction",
-	"type" : "text"
+	"type" : "text",
+	"target" : ["ios", "android"]
 }
