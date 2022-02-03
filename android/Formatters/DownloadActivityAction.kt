@@ -1,134 +1,140 @@
 package ___PACKAGE___
 
+import android.Manifest
+import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
-import android.os.Environment.DIRECTORY_DOWNLOADS
+import android.database.Cursor
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.util.Patterns
 import android.webkit.MimeTypeMap
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import androidx.databinding.BindingAdapter
-import com.qmobile.qmobileapi.auth.isRemoteUrlValid
-import com.qmobile.qmobiledatasync.toast.MessageType
-import com.qmobile.qmobileui.utils.ToastHelper
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.Response
-import okhttp3.ResponseBody
-import timber.log.Timber
+import com.qmobile.qmobileui.ui.setOnSingleClickListener
+import com.qmobile.qmobileui.utils.PermissionChecker
 import java.io.File
-import java.io.FileOutputStream
-import java.io.InputStream
-import java.net.HttpURLConnection
 import java.util.Locale
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
-
-private const val TIMEOUT = 15
 
 @BindingAdapter("downloadActivityAction")
 fun downloadActivityAction(view: TextView, urlString: String?) {
     if (urlString.isNullOrEmpty()) return
     view.text = urlString
 
-    if (!urlString.isRemoteUrlValid())
+    if (!Patterns.WEB_URL.toRegex().matches(urlString))
         return
 
-    val okHttpClientBuilder = OkHttpClient().newBuilder()
-        .connectTimeout(TIMEOUT.toLong(), TimeUnit.SECONDS)
-        .readTimeout(TIMEOUT.toLong(), TimeUnit.SECONDS)
-        .writeTimeout(TIMEOUT.toLong(), TimeUnit.SECONDS)
-    val okHttpClient = okHttpClientBuilder.build()
-
-    view.setOnClickListener {
-
-        val file = getFile(view.context, urlString)
-
-        downloadFile(urlString, okHttpClient, file) { isSuccess ->
-            if (isSuccess)
-                startFileShareIntent(view.context, file)
-            else
-                ToastHelper.show(
-                    view.context,
-                    "Error while downloading file : $urlString",
-                    MessageType.ERROR
-                )
+    var inProgress = false
+    view.setOnSingleClickListener(2000L) {
+        askPermission(view.context) {
+            if (!inProgress) {
+                inProgress = true
+                downloadImage(view.context, urlString) {
+                    inProgress = false
+                }
+            }
         }
     }
 }
 
-private fun getFile(context: Context, urlString: String): File {
-    val fileName = try {
-        urlString.removeSuffix("/").substring(urlString.lastIndexOf('/') + 1)
-    } catch (e: StringIndexOutOfBoundsException) {
-        Timber.e(e.localizedMessage)
-        "downloadActivityAction_" + System.currentTimeMillis()
+private fun askPermission(context: Context, canGoOn: () -> Unit) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+        (context as PermissionChecker?)?.askPermission(
+            context = context,
+            permission = Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            rationale = "Permission required to save files to your download folder"
+        ) { isGranted ->
+            if (isGranted) {
+                canGoOn()
+            }
+        }
+    } else {
+        canGoOn()
     }
-
-    var file = File(context.getExternalFilesDir(DIRECTORY_DOWNLOADS), fileName)
-    var i = 0
-    while (file.exists()) {
-        i++
-        var newName = "${file.nameWithoutExtension.removeSuffix(" (${i - 1})")} ($i)"
-        if (file.extension.isNotEmpty())
-            newName += ".${file.extension}"
-        file = File(context.getExternalFilesDir(DIRECTORY_DOWNLOADS), newName)
-    }
-    return file
 }
 
-private fun downloadFile(
-    urlString: String,
-    okHttpClient: OkHttpClient,
-    file: File,
-    onResult: (isSuccess: Boolean) -> Unit
-) {
+fun downloadImage(context: Context, url: String, onFinished: () -> Unit) {
+    val directory = File(Environment.DIRECTORY_DOWNLOADS)
+
+    if (!directory.exists()) {
+        directory.mkdirs()
+    }
+
+    val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+    val fileName = url.substring(url.lastIndexOf("/") + 1)
+    val request = DownloadManager.Request(Uri.parse(url)).apply {
+        setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
+            .setAllowedOverRoaming(false)
+            .setTitle(fileName)
+            .setDescription("")
+            .setDestinationInExternalPublicDir(
+                directory.toString(),
+                fileName
+            )
+    }
+
+    val downloadId = downloadManager.enqueue(request)
+    val query = DownloadManager.Query().setFilterById(downloadId)
 
     val executor = Executors.newSingleThreadExecutor()
     val handler = Handler(Looper.getMainLooper())
 
+    var downloadFilePath = ""
+
     executor.execute {
-        val request: Request = Request.Builder().url(urlString).build()
-        val response: Response = okHttpClient.newCall(request).execute()
-        val body: ResponseBody? = response.body
-        val responseCode = response.code
-        if (responseCode >= HttpURLConnection.HTTP_OK &&
-            responseCode < HttpURLConnection.HTTP_MULT_CHOICE &&
-            body != null
-        ) {
-            body.byteStream().apply {
-                saveFileToExternalStorage(this, file)
+        var downloading = true
+        var lastMsg = ""
+        while (downloading) {
+            val cursor: Cursor = downloadManager.query(query)
+            cursor.moveToFirst()
+            var columnIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
+            if (cursor.getInt(columnIndex) == DownloadManager.STATUS_SUCCESSFUL) {
+                downloading = false
+                val columnIndexLocalUri = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI)
+                downloadFilePath = cursor.getString(columnIndexLocalUri).replace("file://", "")
             }
+            columnIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
+            val status = cursor.getInt(columnIndex)
+            val msg = statusMessage(fileName, directory, status)
+            if (msg != lastMsg) {
+                handler.post {
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                }
+                lastMsg = msg
+            }
+            cursor.close()
         }
-        handler.post {
-            onResult(
-                responseCode >= HttpURLConnection.HTTP_OK &&
-                        responseCode < HttpURLConnection.HTTP_MULT_CHOICE &&
-                        body != null,
 
-                )
+        val downloadedFile = File(downloadFilePath)
+        if (downloadedFile.exists()) {
+            startFileShareIntent(context, downloadedFile)
         }
+        onFinished()
     }
 }
 
-fun saveFileToExternalStorage(inputStream: InputStream, target: File) {
-    inputStream.use { input ->
-        FileOutputStream(target).use { output ->
-            input.copyTo(output)
-        }
+private fun statusMessage(fileName: String, directory: File, status: Int): String =
+    when (status) {
+        DownloadManager.STATUS_FAILED -> "Download has failed"
+        DownloadManager.STATUS_PAUSED -> "Paused"
+        DownloadManager.STATUS_PENDING -> "Pending"
+        DownloadManager.STATUS_RUNNING -> "Downloading..."
+        DownloadManager.STATUS_SUCCESSFUL -> "File downloaded successfully in $directory" + File.separator + fileName
+        else -> "There's nothing to download"
     }
-}
 
 private fun startFileShareIntent(context: Context, file: File) {
     val shareIntent = Intent(Intent.ACTION_SEND).apply {
         type = file.getMimeType()
         flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-        val fileURI = FileProvider.getUriForFile(
-            context, context.packageName + ".provider",
-            File(file.path)
-        )
+        val fileURI = FileProvider.getUriForFile(context, context.packageName + ".provider", File(file.path))
         putExtra(Intent.EXTRA_STREAM, fileURI)
     }
     context.startActivity(shareIntent)
