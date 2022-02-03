@@ -86,49 +86,52 @@ fun downloadImage(context: Context, url: String, onFinished: () -> Unit) {
     val executor = Executors.newSingleThreadExecutor()
     val handler = Handler(Looper.getMainLooper())
 
-    var downloadFilePath = ""
+    var downloadFilePath: String
 
     executor.execute {
         var downloading = true
         var lastMsg = ""
+        var status: Int
         while (downloading) {
             val cursor: Cursor = downloadManager.query(query)
             cursor.moveToFirst()
-            var columnIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
-            if (cursor.getInt(columnIndex) == DownloadManager.STATUS_SUCCESSFUL) {
-                downloading = false
-                val columnIndexLocalUri = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI)
-                downloadFilePath = cursor.getString(columnIndexLocalUri).replace("file://", "")
-            }
-            columnIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
-            val status = cursor.getInt(columnIndex)
-            val msg = statusMessage(fileName, directory, status)
-            if (msg != lastMsg) {
+            val columnIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
+            status = cursor.getInt(columnIndex)
+            val msg = statusMessage(status)
+            if (msg != lastMsg && msg.isNotEmpty()) {
                 handler.post {
                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                 }
                 lastMsg = msg
             }
+            when (status) {
+                DownloadManager.STATUS_SUCCESSFUL -> {
+                    downloading = false
+                    val columnIndexLocalUri = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI)
+                    downloadFilePath = cursor.getString(columnIndexLocalUri).replace("file://", "")
+                    val downloadedFile = File(downloadFilePath)
+                    if (downloadedFile.exists()) {
+                        startFileShareIntent(context, downloadedFile)
+                    }
+                    onFinished()
+                }
+                DownloadManager.STATUS_FAILED -> {
+                    downloading = false
+                    downloadManager.remove(downloadId)
+                    onFinished()
+                }
+            }
             cursor.close()
         }
-
-        val downloadedFile = File(downloadFilePath)
-        if (downloadedFile.exists()) {
-            startFileShareIntent(context, downloadedFile)
-        }
-        onFinished()
     }
 }
 
-private fun statusMessage(fileName: String, directory: File, status: Int): String =
-    when (status) {
-        DownloadManager.STATUS_FAILED -> "Download has failed"
-        DownloadManager.STATUS_PAUSED -> "Paused"
-        DownloadManager.STATUS_PENDING -> "Pending"
-        DownloadManager.STATUS_RUNNING -> "Downloading..."
-        DownloadManager.STATUS_SUCCESSFUL -> "File downloaded successfully in $directory" + File.separator + fileName
-        else -> "There's nothing to download"
-    }
+private fun statusMessage(status: Int): String = when (status) {
+    DownloadManager.STATUS_FAILED -> "Download failed"
+    DownloadManager.STATUS_RUNNING -> "Downloading..."
+    DownloadManager.STATUS_SUCCESSFUL -> "Download successful"
+    else -> ""
+}
 
 private fun startFileShareIntent(context: Context, file: File) {
     val shareIntent = Intent(Intent.ACTION_SEND).apply {
