@@ -23,6 +23,8 @@ import java.io.File
 import java.util.Locale
 import java.util.concurrent.Executors
 
+private const val CLICK_DEBOUNCE_TIME = 2000L
+
 @BindingAdapter("downloadActivityAction")
 fun downloadActivityAction(view: TextView, urlString: String?) {
     if (urlString.isNullOrEmpty()) return
@@ -32,7 +34,7 @@ fun downloadActivityAction(view: TextView, urlString: String?) {
         return
 
     var inProgress = false
-    view.setOnSingleClickListener(2000L) {
+    view.setOnSingleClickListener(CLICK_DEBOUNCE_TIME) {
         askPermission(view.context) {
             if (!inProgress) {
                 inProgress = true
