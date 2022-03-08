@@ -1,5 +1,9 @@
 {
 	"name": "downloadActivity",
 	"binding": "downloadActivityAction",
-	"type" : "text"
+	"type" : "text",
+	"target" : ["ios", "android"],
+	"capabilities" : {
+		"android" : [ "android.permission.WRITE_EXTERNAL_STORAGE" ]
+	}
 }
