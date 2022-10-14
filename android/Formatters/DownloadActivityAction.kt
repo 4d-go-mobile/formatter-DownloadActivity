@@ -48,7 +48,7 @@ fun downloadActivityAction(view: TextView, urlString: String?) {
 
 private fun askPermission(context: Context, canGoOn: () -> Unit) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-        (context as PermissionChecker?)?.askPermission(
+        (context as? PermissionChecker)?.askPermission(
             context = context,
             permission = Manifest.permission.WRITE_EXTERNAL_STORAGE,
             rationale = "Permission required to save files to your download folder"
